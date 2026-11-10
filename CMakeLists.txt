@@ -27,6 +27,7 @@ message(STATUS "SFML найден: ${SFML_DIR}")
 # ---------------------------------------------------------------------------
 add_executable(rpg_roguelike
     src/main.cpp
+    src/input/Command.cpp
 )
 target_include_directories(rpg_roguelike PRIVATE src)
 target_link_libraries(rpg_roguelike PRIVATE

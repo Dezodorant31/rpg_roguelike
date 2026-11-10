@@ -1,6 +1,8 @@
 #include <SFML/Graphics.hpp>
 #include <print>
 
+#include "input/InputHandler.hpp"
+
 int main()
 {
     sf::RenderWindow window(
@@ -10,28 +12,37 @@ int main()
     );
     window.setFramerateLimit(60);
 
-    // Простейший шрифт-агностичный прямоугольник, чтобы видеть, что рендер жив
-    sf::RectangleShape tile({32.f, 32.f});
-    tile.setFillColor(sf::Color::Green);
-    tile.setPosition({100.f, 100.f});
+    sf::RectangleShape player({32.f, 32.f});
+    player.setFillColor(sf::Color::Green);
+    player.setPosition({100.f, 100.f});
+
+    GameContext ctx{ &player };
+
+    InputHandler input;
 
     while (window.isOpen())
     {
-        // SFML 3: обработка событий через std::optional<sf::Event>
         while (const std::optional event = window.pollEvent())
         {
             if (event->is<sf::Event::Closed>())
-                window.close();
-
-            if (const auto* key = event->getIf<sf::Event::KeyPressed>())
             {
-                if (key->code == sf::Keyboard::Key::Escape)
-                    window.close();
+                window.close();
+                continue;
             }
+
+            if (const auto* key = event->getIf<sf::Event::KeyPressed>();
+                key && key->code == sf::Keyboard::Key::Escape)
+            {
+                window.close();
+                continue;
+            }
+
+            // Ввод через команды
+            input.handleEvent(*event, ctx);
         }
 
         window.clear(sf::Color(20, 20, 28));
-        window.draw(tile);
+        window.draw(player);
         window.display();
     }
 
