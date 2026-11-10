@@ -1,31 +1,17 @@
 #pragma once
 
+#include "components/Position.hpp"
+#include "ecs/World.hpp"
+#include "systems/MovementSystem.hpp"
 #include "world/Map.hpp"
 
-// ---------------------------------------------------------------------------
-// GameContext — «сцена», которую видят команды.
-//
-// Сейчас это просто указатели на мир и позицию игрока. В Спринте 2 появится
-// EntityId игрока и компоненты, но интерфейс Command от этого не изменится.
-//
-// Все указатели могут быть nullptr — команда обязана проверять и возвращать
-// false, если контекст не готов. Это безопаснее, чем падать.
-// ---------------------------------------------------------------------------
 struct GameContext
 {
-    Map* map     = nullptr;
-    int* playerX = nullptr;   // позиция в ТАЙЛАХ, не в пикселях
-    int* playerY = nullptr;
+    World* world = nullptr;
+    Map*   map   = nullptr;
+    EntityId player;   // может быть «мёртвым», проверяем через world->isAlive
 };
 
-// ---------------------------------------------------------------------------
-// Command — базовый интерфейс.
-//
-// execute() возвращает bool: «команда реально что-то сделала?».
-// В пошаговой игре это семантика «ход потрачен».
-//   - Игрок нажал W, впереди пол       → execute() = true  → ход потрачен
-//   - Игрок нажал W, впереди стена     → execute() = false → ход НЕ потрачен
-// ---------------------------------------------------------------------------
 class Command
 {
 public:
@@ -33,36 +19,17 @@ public:
     virtual bool execute(GameContext& ctx) = 0;
 };
 
-// ---------------------------------------------------------------------------
-// MoveCommand — одна команда на все четыре направления.
-//
-// Сначала было четыре класса (MoveUp/MoveDown/MoveLeft/MoveRight), каждый
-// со своей копией кода. Как только появилась проверка коллизий, стало видно,
-// что это один и тот же код с разными (dx, dy). Схлопнули в один класс —
-// это и есть тот «тривиальный рефакторинг», ради которого Command и вводился.
-// ---------------------------------------------------------------------------
 class MoveCommand final : public Command
 {
 public:
-    explicit MoveCommand(int dx, int dy) noexcept
-        : dx_(dx), dy_(dy) {}
+    explicit MoveCommand(int dx, int dy) noexcept : dx_(dx), dy_(dy) {}
 
     bool execute(GameContext& ctx) override
     {
-        if (!ctx.map || !ctx.playerX || !ctx.playerY)
-            return false;
+        if (!ctx.world || !ctx.map) return false;
+        if (!ctx.world->isAlive(ctx.player)) return false;
 
-        const int nx = *ctx.playerX + dx_;
-        const int ny = *ctx.playerY + dy_;
-
-        // Вот здесь bool из execute() впервые реально работает:
-        // в стену/за границу — ход НЕ потрачен.
-        if (!ctx.map->isWalkable(nx, ny))
-            return false;
-
-        *ctx.playerX = nx;
-        *ctx.playerY = ny;
-        return true;
+        return tryMove(*ctx.world, *ctx.map, ctx.player, dx_, dy_);
     }
 
 private:
@@ -70,17 +37,8 @@ private:
     int dy_;
 };
 
-// ---------------------------------------------------------------------------
-// WaitCommand — «пропустить ход».
-//
-// Пока визуальной реакции нет (нет монстров, которые ходят в ответ).
-// Когда появится EnemyTurn — именно здесь (и в main) начнётся «ответный ход».
-// ---------------------------------------------------------------------------
 class WaitCommand final : public Command
 {
 public:
-    bool execute(GameContext&) override
-    {
-        return true;   // ход всегда потрачен
-    }
+    bool execute(GameContext&) override { return true; }
 };

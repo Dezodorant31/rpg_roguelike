@@ -24,56 +24,62 @@ endif()
 message(STATUS "SFML найден: ${SFML_DIR}")
 
 # ---------------------------------------------------------------------------
+# Общие флаги (используются в нескольких таргетах)
+# ---------------------------------------------------------------------------
+function(apply_common_flags target)
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/third_party/doctest
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${target} PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow
+        )
+    endif()
+
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        target_compile_options(${target} PRIVATE
+            -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+        target_link_options(${target} PRIVATE
+            -fsanitize=address,undefined)
+    endif()
+endfunction()
+
+# ---------------------------------------------------------------------------
 # Основной исполняемый файл
 # ---------------------------------------------------------------------------
 add_executable(rpg_roguelike
     src/main.cpp
     src/world/Map.cpp
-    # src/input/Command.cpp  ← УДАЛЁН: реализация теперь в Command.hpp
+    # World.hpp — header-only, .cpp не нужен
+    # Command.hpp — header-only после Спринта 1
 )
-
-target_include_directories(rpg_roguelike PRIVATE src)
 target_link_libraries(rpg_roguelike PRIVATE
     SFML::Graphics
     SFML::Window
     SFML::System
 )
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(rpg_roguelike PRIVATE
-        -Wall -Wextra -Wpedantic -Wconversion -Wshadow
-    )
-endif()
-
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_options(rpg_roguelike PRIVATE
-        -fsanitize=address,undefined -fno-omit-frame-pointer -g)
-    target_link_options(rpg_roguelike PRIVATE
-        -fsanitize=address,undefined)
-endif()
+apply_common_flags(rpg_roguelike)
 
 # ---------------------------------------------------------------------------
 # Тесты (doctest)
 # ---------------------------------------------------------------------------
 enable_testing()
 
+# test_map
 add_executable(test_map
     tests/test_map.cpp
     src/world/Map.cpp
 )
-target_include_directories(test_map PRIVATE src third_party/doctest)
 target_link_libraries(test_map PRIVATE SFML::System)
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(test_map PRIVATE
-        -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
-endif()
-
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_options(test_map PRIVATE
-        -fsanitize=address,undefined -fno-omit-frame-pointer -g)
-    target_link_options(test_map PRIVATE
-        -fsanitize=address,undefined)
-endif()
-
+apply_common_flags(test_map)
 add_test(NAME MapTests COMMAND test_map)
+
+# test_world
+add_executable(test_world
+    tests/test_world.cpp
+)
+target_link_libraries(test_world PRIVATE SFML::System)
+apply_common_flags(test_world)
+add_test(NAME WorldTests COMMAND test_world)

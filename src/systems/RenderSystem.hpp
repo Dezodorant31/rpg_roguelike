@@ -1,13 +1,14 @@
 #pragma once
 
+#include "components/Position.hpp"
+#include "components/Renderable.hpp"
+#include "ecs/World.hpp"
 #include "world/Map.hpp"
 
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Graphics/RectangleShape.hpp>
+#include <algorithm>
 
-// Рисует видимую часть карты.
-// Один RectangleShape переиспользуется для всех тайлов —
-// это дешевле, чем создавать/уничтожать объект на каждый тайл.
 class RenderSystem
 {
 public:
@@ -18,12 +19,10 @@ public:
                         static_cast<float>(tileSize)});
     }
 
-    // cameraX/Y — мировые координаты левого верхнего угла экрана.
     void drawMap(sf::RenderWindow& window,
                  const Map& map,
                  float cameraX, float cameraY) const
     {
-        // Какие тайлы видны?
         const int firstX = static_cast<int>(cameraX) / tileSize_;
         const int firstY = static_cast<int>(cameraY) / tileSize_;
 
@@ -31,7 +30,6 @@ public:
         const int lastX = firstX + static_cast<int>(size.x) / tileSize_ + 1;
         const int lastY = firstY + static_cast<int>(size.y) / tileSize_ + 1;
 
-        // Клампим в границы карты
         const int x0 = std::max(0, firstX);
         const int y0 = std::max(0, firstY);
         const int x1 = std::min(map.width(),  lastX);
@@ -42,7 +40,6 @@ public:
             for (int x = x0; x < x1; ++x)
             {
                 const auto& tile = map.at(x, y);
-
                 shape_.setPosition({
                     static_cast<float>(x * tileSize_) - cameraX,
                     static_cast<float>(y * tileSize_) - cameraY
@@ -53,7 +50,30 @@ public:
         }
     }
 
+    // Новый метод: рисует ВСЕ сущности с Position + Renderable.
+    void drawEntities(sf::RenderWindow& window,
+                      World& world,
+                      float cameraX, float cameraY)
+    {
+        for (auto [id, pos] : world.view<Position>())
+        {
+            auto* rend = world.get<Renderable>(id);
+            if (!rend) continue;
+
+            const float s = static_cast<float>(tileSize_) * rend->sizeRatio;
+            const float offset = (static_cast<float>(tileSize_) - s) / 2.f;
+
+            shape_.setSize({s, s});
+            shape_.setPosition({
+                static_cast<float>(pos->x * tileSize_) - cameraX + offset,
+                static_cast<float>(pos->y * tileSize_) - cameraY + offset
+            });
+            shape_.setFillColor(rend->color);
+            window.draw(shape_);
+        }
+    }
+
 private:
     int tileSize_;
-    mutable sf::RectangleShape shape_;   // mutable: метод const, но фигуру меняем
+    mutable sf::RectangleShape shape_;
 };

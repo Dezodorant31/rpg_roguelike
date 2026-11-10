@@ -1,9 +1,17 @@
 #include <SFML/Graphics.hpp>
 #include <print>
-#include <algorithm>   // std::clamp
+#include <algorithm>
 
+#include "components/Health.hpp"
+#include "components/MonsterTag.hpp"
+#include "components/Name.hpp"
+#include "components/PlayerTag.hpp"
+#include "components/Position.hpp"
+#include "components/Renderable.hpp"
 #include "core/GameLoop.hpp"
+#include "ecs/World.hpp"
 #include "input/InputHandler.hpp"
+#include "systems/CombatSystem.hpp"
 #include "systems/RenderSystem.hpp"
 #include "world/Map.hpp"
 
@@ -20,38 +28,53 @@ int main()
     );
     window.setFramerateLimit(60);
 
-    // --- Мир ---
+    // ---------- Мир ----------
     Map map(kMapWidth, kMapHeight);
     map.fill(TileType::Floor);
 
-    // Окружаем стенами (рамка)
-    for (int x = 0; x < kMapWidth; ++x)
-    {
+    for (int x = 0; x < kMapWidth; ++x) {
         map.at(x, 0).type = TileType::Wall;
         map.at(x, kMapHeight - 1).type = TileType::Wall;
     }
-    for (int y = 0; y < kMapHeight; ++y)
-    {
+    for (int y = 0; y < kMapHeight; ++y) {
         map.at(0, y).type = TileType::Wall;
         map.at(kMapWidth - 1, y).type = TileType::Wall;
     }
-    // Внутренняя стена для проверки коллизий
     for (int y = 5; y < 15; ++y)
         map.at(10, y).type = TileType::Wall;
 
-    // Пересобираем цвета (потому что поменяли type напрямую)
     for (auto& t : map.tiles())
-    {
         t.color = (t.type == TileType::Floor)
-                ? sf::Color(60, 60, 70)
-                : sf::Color(30, 30, 35);
-    }
+                ? sf::Color(60, 60, 70) : sf::Color(30, 30, 35);
 
-    // --- Игрок ---
-    int playerX = 3;
-    int playerY = 3;
+    // ---------- ECS ----------
+    World world;
 
-    GameContext ctx{ &map, &playerX, &playerY };
+    // Игрок
+    const EntityId player = world.create();
+    world.add<PlayerTag>(player);
+    world.add<Name>(player, "Вы");
+    world.add<Position>(player, Position{3, 3});
+    world.add<Renderable>(player, Renderable{sf::Color::Green});
+    world.add<Health>(player, Health{30, 30});
+
+    // Пара монстров
+    const EntityId goblin = world.create();
+    world.add<MonsterTag>(goblin);
+    world.add<Name>(goblin, "Гоблин");
+    world.add<Position>(goblin, Position{7, 4});
+    world.add<Renderable>(goblin, Renderable{sf::Color(180, 60, 60)});
+    world.add<Health>(goblin, Health{5, 5});
+
+    const EntityId rat = world.create();
+    world.add<MonsterTag>(rat);
+    world.add<Name>(rat, "Крыса");
+    world.add<Position>(rat, Position{14, 8});
+    world.add<Renderable>(rat, Renderable{sf::Color(140, 100, 60), 0.6f});
+    world.add<Health>(rat, Health{3, 3});
+
+    // ---------- Контекст и системы ----------
+    GameContext ctx{ &world, &map, player };
     InputHandler input;
     RenderSystem renderer(kTileSize);
     GameLoop loop;
@@ -62,33 +85,55 @@ int main()
         {
             if (event->is<sf::Event::Closed>()) { window.close(); continue; }
 
-            if (const auto* key = event->getIf<sf::Event::KeyPressed>();
-                key && key->code == sf::Keyboard::Key::Escape)
+            if (const auto* key = event->getIf<sf::Event::KeyPressed>())
             {
-                window.close(); continue;
+                if (key->code == sf::Keyboard::Key::Escape) { window.close(); continue; }
+
+                // «Атака» — если впереди монстр. Пока вручную, по Enter.
+                if (key->code == sf::Keyboard::Key::Enter)
+                {
+                    auto* pos = world.get<Position>(player);
+                    if (pos)
+                    {
+                        // Найдём монстра рядом
+                        for (auto [id, mpos] : world.view<Position>())
+                        {
+                            if (id == player) continue;
+                            if (!world.get<MonsterTag>(id)) continue;
+                            const int dx = std::abs(mpos->x - pos->x);
+                            const int dy = std::abs(mpos->y - pos->y);
+                            if (dx + dy == 1)
+                            {
+                                std::println("{}", dealDamage(world, id, 3));
+                                if (auto* h = world.get<Health>(id); h && h->isDead())
+                                {
+                                    std::println("  ...побеждён!");
+                                    world.destroy(id);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    continue;
+                }
             }
 
-            // Команда вернула true → ход потрачен.
-            // Пока некому «отвечать» на ход, но семантика уже правильная.
-            [[maybe_unused]] bool turnTaken = input.handleEvent(*event, ctx);
+            input.handleEvent(*event, ctx);
         }
 
-        // --- Симуляция ---
-        // В пошаговой игре тут пока пусто. GameLoop уже готов
-        // для будущих анимаций (интерполяция между шагами).
+        // Симуляция
         const int steps = loop.advance();
-        for (int i = 0; i < steps; ++i)
+        for (int i = 0; i < steps; ++i) { /* анимации — потом */ }
+
+        // Камера
+        float camX = 0.f, camY = 0.f;
+        if (auto* ppos = world.get<Position>(player))
         {
-            // будущее: update animations, effects
+            camX = static_cast<float>(ppos->x * kTileSize)
+                 - static_cast<float>(window.getSize().x) / 2.f;
+            camY = static_cast<float>(ppos->y * kTileSize)
+                 - static_cast<float>(window.getSize().y) / 2.f;
         }
-
-        // --- Камера центрируется на игроке ---
-        float camX = static_cast<float>(playerX * kTileSize)
-                   - static_cast<float>(window.getSize().x) / 2.f;
-        float camY = static_cast<float>(playerY * kTileSize)
-                   - static_cast<float>(window.getSize().y) / 2.f;
-
-        // Клампим камеру, чтобы не показывать пустоту за картой
         const float maxCamX = static_cast<float>(kMapWidth  * kTileSize)
                             - static_cast<float>(window.getSize().x);
         const float maxCamY = static_cast<float>(kMapHeight * kTileSize)
@@ -96,20 +141,10 @@ int main()
         camX = std::clamp(camX, 0.f, std::max(0.f, maxCamX));
         camY = std::clamp(camY, 0.f, std::max(0.f, maxCamY));
 
-        // --- Рендер ---
+        // Рендер
         window.clear(sf::Color(10, 10, 15));
         renderer.drawMap(window, map, camX, camY);
-
-        // Игрок — отдельный прямоугольник
-        sf::RectangleShape player({static_cast<float>(kTileSize) - 4.f,
-                                   static_cast<float>(kTileSize) - 4.f});
-        player.setFillColor(sf::Color::Green);
-        player.setPosition({
-            static_cast<float>(playerX * kTileSize) - camX + 2.f,
-            static_cast<float>(playerY * kTileSize) - camY + 2.f
-        });
-        window.draw(player);
-
+        renderer.drawEntities(window, world, camX, camY);
         window.display();
     }
 
