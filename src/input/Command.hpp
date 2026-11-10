@@ -1,19 +1,31 @@
 #pragma once
 
-#include <SFML/Graphics/RectangleShape.hpp>
-#include <SFML/System/Vector2.hpp>
+#include "world/Map.hpp"
 
-// Контекст, который видят команды.
-// Пока минимален — потом сюда придёт Game/World.
+// ---------------------------------------------------------------------------
+// GameContext — «сцена», которую видят команды.
+//
+// Сейчас это просто указатели на мир и позицию игрока. В Спринте 2 появится
+// EntityId игрока и компоненты, но интерфейс Command от этого не изменится.
+//
+// Все указатели могут быть nullptr — команда обязана проверять и возвращать
+// false, если контекст не готов. Это безопаснее, чем падать.
+// ---------------------------------------------------------------------------
 struct GameContext
 {
-    sf::RectangleShape* player;   // nullptr-safe: команды проверяют
-    int tileSize = 32;
+    Map* map     = nullptr;
+    int* playerX = nullptr;   // позиция в ТАЙЛАХ, не в пикселях
+    int* playerY = nullptr;
 };
 
-// Базовый интерфейс команды.
-// execute() возвращает bool: "команда что-то сделала" —
-// пригодится для пошаговой логики (сделал ход → ходят монстры).
+// ---------------------------------------------------------------------------
+// Command — базовый интерфейс.
+//
+// execute() возвращает bool: «команда реально что-то сделала?».
+// В пошаговой игре это семантика «ход потрачен».
+//   - Игрок нажал W, впереди пол       → execute() = true  → ход потрачен
+//   - Игрок нажал W, впереди стена     → execute() = false → ход НЕ потрачен
+// ---------------------------------------------------------------------------
 class Command
 {
 public:
@@ -21,64 +33,54 @@ public:
     virtual bool execute(GameContext& ctx) = 0;
 };
 
-// -------------------- Конкретные команды --------------------
-
-class MoveUpCommand final : public Command
+// ---------------------------------------------------------------------------
+// MoveCommand — одна команда на все четыре направления.
+//
+// Сначала было четыре класса (MoveUp/MoveDown/MoveLeft/MoveRight), каждый
+// со своей копией кода. Как только появилась проверка коллизий, стало видно,
+// что это один и тот же код с разными (dx, dy). Схлопнули в один класс —
+// это и есть тот «тривиальный рефакторинг», ради которого Command и вводился.
+// ---------------------------------------------------------------------------
+class MoveCommand final : public Command
 {
 public:
+    explicit MoveCommand(int dx, int dy) noexcept
+        : dx_(dx), dy_(dy) {}
+
     bool execute(GameContext& ctx) override
     {
-        return move(ctx, {0.f, -1.f});
+        if (!ctx.map || !ctx.playerX || !ctx.playerY)
+            return false;
+
+        const int nx = *ctx.playerX + dx_;
+        const int ny = *ctx.playerY + dy_;
+
+        // Вот здесь bool из execute() впервые реально работает:
+        // в стену/за границу — ход НЕ потрачен.
+        if (!ctx.map->isWalkable(nx, ny))
+            return false;
+
+        *ctx.playerX = nx;
+        *ctx.playerY = ny;
+        return true;
     }
+
 private:
-    static bool move(GameContext& ctx, sf::Vector2f dir);
+    int dx_;
+    int dy_;
 };
 
-class MoveDownCommand final : public Command
-{
-public:
-    bool execute(GameContext& ctx) override
-    {
-        return move(ctx, {0.f, 1.f});
-    }
-private:
-    static bool move(GameContext& ctx, sf::Vector2f dir);
-};
-
-class MoveLeftCommand final : public Command
-{
-public:
-    bool execute(GameContext& ctx) override
-    {
-        return move(ctx, {-1.f, 0.f});
-    }
-private:
-    static bool move(GameContext& ctx, sf::Vector2f dir);
-};
-
-class MoveRightCommand final : public Command
-{
-public:
-    bool execute(GameContext& ctx) override
-    {
-        return move(ctx, {1.f, 0.f});
-    }
-private:
-    static bool move(GameContext& ctx, sf::Vector2f dir);
-};
-
-// Пробел — тестовая «команда ожидания».
-// Позже станет WaitCommand (пропуск хода) или ActionCommand.
+// ---------------------------------------------------------------------------
+// WaitCommand — «пропустить ход».
+//
+// Пока визуальной реакции нет (нет монстров, которые ходят в ответ).
+// Когда появится EnemyTurn — именно здесь (и в main) начнётся «ответный ход».
+// ---------------------------------------------------------------------------
 class WaitCommand final : public Command
 {
 public:
-    bool execute(GameContext& ctx) override
+    bool execute(GameContext&) override
     {
-        if (!ctx.player) return false;
-        // Меняем цвет — визуальный отклик, что команда дошла
-        auto c = ctx.player->getFillColor();
-        ctx.player->setFillColor(
-            c == sf::Color::Green ? sf::Color::Yellow : sf::Color::Green);
-        return true;
+        return true;   // ход всегда потрачен
     }
 };

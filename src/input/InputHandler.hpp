@@ -15,11 +15,11 @@ public:
     {
         // Маппинг клавиша → фабрика команды.
         // std::function или лямбда — чтобы не плодить пулы команд.
-        bindings_[sf::Keyboard::Key::W] = [] { return std::make_unique<MoveUpCommand>();    };
-        bindings_[sf::Keyboard::Key::S] = [] { return std::make_unique<MoveDownCommand>();  };
-        bindings_[sf::Keyboard::Key::A] = [] { return std::make_unique<MoveLeftCommand>();  };
-        bindings_[sf::Keyboard::Key::D] = [] { return std::make_unique<MoveRightCommand>(); };
-        bindings_[sf::Keyboard::Key::Space] = [] { return std::make_unique<WaitCommand>();  };
+        bindings_[sf::Keyboard::Key::W] = [] { return std::make_unique<MoveCommand>( 0, -1); };
+		bindings_[sf::Keyboard::Key::S] = [] { return std::make_unique<MoveCommand>( 0, +1); };
+		bindings_[sf::Keyboard::Key::A] = [] { return std::make_unique<MoveCommand>(-1,  0); };
+		bindings_[sf::Keyboard::Key::D] = [] { return std::make_unique<MoveCommand>(+1,  0); };
+		bindings_[sf::Keyboard::Key::Space] = [] { return std::make_unique<WaitCommand>(); };
     }
 
     // Возвращает true, если команда была выполнена (ход потрачен).
