@@ -1,3 +1,5 @@
+#pragma once
+
 // GameState.hpp
 class GameState
 {

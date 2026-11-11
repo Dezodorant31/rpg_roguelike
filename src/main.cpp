@@ -73,14 +73,15 @@ int main()
     world.add<Renderable>(rat, Renderable{sf::Color(140, 100, 60), 0.6f});
     world.add<Health>(rat, Health{3, 3});
 
-    // ---------- Состояния ----------
-    // Порядок: GameOver ← EnemyTurn ← PlayerTurn
-    // Связи устанавливаем после создания всех объектов.
-    GameOverState  gameOver;
-    EnemyTurnState enemyTurn{ &gameOver };       // после монстров → GameOver (main проверит)
-    PlayerTurnState playerTurn{ &enemyTurn };    // после игрока → EnemyTurn
+	// ---------- Состояния ----------
+	// Циклическая связка: PlayerTurn ↔ EnemyTurn.
+	// GameOver — отдельно, main переключается принудительно при смерти.
+	GameOverState  gameOver;
+	EnemyTurnState enemyTurn;
+	PlayerTurnState playerTurn{ &enemyTurn };
+	enemyTurn.setNext(&playerTurn);
 
-    GameState* current = &playerTurn;
+	GameState* current = &playerTurn;
 
     // ---------- Контекст и системы ----------
     GameContext ctx{ &world, &map, player };
