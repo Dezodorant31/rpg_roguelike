@@ -11,7 +11,9 @@
 #include "core/GameLoop.hpp"
 #include "ecs/World.hpp"
 #include "input/InputHandler.hpp"
-#include "systems/CombatSystem.hpp"
+#include "states/EnemyTurnState.hpp"
+#include "states/GameOverState.hpp"
+#include "states/PlayerTurnState.hpp"
 #include "systems/RenderSystem.hpp"
 #include "world/Map.hpp"
 
@@ -50,7 +52,6 @@ int main()
     // ---------- ECS ----------
     World world;
 
-    // Игрок
     const EntityId player = world.create();
     world.add<PlayerTag>(player);
     world.add<Name>(player, "Вы");
@@ -58,7 +59,6 @@ int main()
     world.add<Renderable>(player, Renderable{sf::Color::Green});
     world.add<Health>(player, Health{30, 30});
 
-    // Пара монстров
     const EntityId goblin = world.create();
     world.add<MonsterTag>(goblin);
     world.add<Name>(goblin, "Гоблин");
@@ -73,6 +73,15 @@ int main()
     world.add<Renderable>(rat, Renderable{sf::Color(140, 100, 60), 0.6f});
     world.add<Health>(rat, Health{3, 3});
 
+    // ---------- Состояния ----------
+    // Порядок: GameOver ← EnemyTurn ← PlayerTurn
+    // Связи устанавливаем после создания всех объектов.
+    GameOverState  gameOver;
+    EnemyTurnState enemyTurn{ &gameOver };       // после монстров → GameOver (main проверит)
+    PlayerTurnState playerTurn{ &enemyTurn };    // после игрока → EnemyTurn
+
+    GameState* current = &playerTurn;
+
     // ---------- Контекст и системы ----------
     GameContext ctx{ &world, &map, player };
     InputHandler input;
@@ -85,45 +94,37 @@ int main()
         {
             if (event->is<sf::Event::Closed>()) { window.close(); continue; }
 
-            if (const auto* key = event->getIf<sf::Event::KeyPressed>())
+            if (const auto* key = event->getIf<sf::Event::KeyPressed>();
+                key && key->code == sf::Keyboard::Key::Escape)
             {
-                if (key->code == sf::Keyboard::Key::Escape) { window.close(); continue; }
-
-                // «Атака» — если впереди монстр. Пока вручную, по Enter.
-                if (key->code == sf::Keyboard::Key::Enter)
-                {
-                    auto* pos = world.get<Position>(player);
-                    if (pos)
-                    {
-                        // Найдём монстра рядом
-                        for (auto [id, mpos] : world.view<Position>())
-                        {
-                            if (id == player) continue;
-                            if (!world.get<MonsterTag>(id)) continue;
-                            const int dx = std::abs(mpos->x - pos->x);
-                            const int dy = std::abs(mpos->y - pos->y);
-                            if (dx + dy == 1)
-                            {
-                                std::println("{}", dealDamage(world, id, 3));
-                                if (auto* h = world.get<Health>(id); h && h->isDead())
-                                {
-                                    std::println("  ...побеждён!");
-                                    world.destroy(id);
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    continue;
-                }
+                window.close(); continue;
             }
 
-            input.handleEvent(*event, ctx);
+            // Игрок мёртв? Переключаемся на GameOver.
+            if (auto* hp = world.get<Health>(player); hp && hp->isDead())
+            {
+                current = &gameOver;
+            }
+
+            // Создать команду по клавише (если маппинг есть)
+            auto cmd = input.makeCommand(*event);
+            if (!cmd) continue;
+
+            // Отдать команду текущему состоянию
+            current->handleCommand(*cmd, ctx);
         }
+
+        // Игрок мёртв — принудительно GameOver
+        if (auto* hp = world.get<Health>(player); hp && hp->isDead())
+            current = &gameOver;
 
         // Симуляция
         const int steps = loop.advance();
         for (int i = 0; i < steps; ++i) { /* анимации — потом */ }
+
+        // Обновить состояние (возможно, перейти дальше)
+        if (GameState* next = current->update(ctx); next != nullptr && next != current)
+            current = next;
 
         // Камера
         float camX = 0.f, camY = 0.f;

@@ -52,8 +52,9 @@ endfunction()
 add_executable(rpg_roguelike
     src/main.cpp
     src/world/Map.cpp
-    # World.hpp — header-only, .cpp не нужен
-    # Command.hpp — header-only после Спринта 1
+    # Всё остальное — header-only:
+    #   ecs/World.hpp, components/*.hpp, systems/*.hpp,
+    #   states/*.hpp, input/Command.hpp, input/InputHandler.hpp
 )
 target_link_libraries(rpg_roguelike PRIVATE
     SFML::Graphics
