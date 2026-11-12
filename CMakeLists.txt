@@ -5,12 +5,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Отключаем сканирование C++-модулей — мы их не используем,
-# а на заголовках SFML GCC спотыкается.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # ---------------------------------------------------------------------------
-# SFML: сначала системная установка, иначе локальная в проекте
+# SFML
 # ---------------------------------------------------------------------------
 find_package(SFML 3.1 COMPONENTS Graphics Window System QUIET)
 
@@ -24,7 +22,7 @@ endif()
 message(STATUS "SFML найден: ${SFML_DIR}")
 
 # ---------------------------------------------------------------------------
-# Общие флаги (используются в нескольких таргетах)
+# Общие флаги
 # ---------------------------------------------------------------------------
 function(apply_common_flags target)
     target_include_directories(${target} PRIVATE
@@ -52,9 +50,7 @@ endfunction()
 add_executable(rpg_roguelike
     src/main.cpp
     src/world/Map.cpp
-    # Всё остальное — header-only:
-    #   ecs/World.hpp, components/*.hpp, systems/*.hpp,
-    #   states/*.hpp, input/Command.hpp, input/InputHandler.hpp
+    src/world/BSPDungeonBuilder.cpp       # ← НОВЫЙ: реализация BSP
 )
 target_link_libraries(rpg_roguelike PRIVATE
     SFML::Graphics
@@ -64,11 +60,10 @@ target_link_libraries(rpg_roguelike PRIVATE
 apply_common_flags(rpg_roguelike)
 
 # ---------------------------------------------------------------------------
-# Тесты (doctest)
+# Тесты
 # ---------------------------------------------------------------------------
 enable_testing()
 
-# test_map
 add_executable(test_map
     tests/test_map.cpp
     src/world/Map.cpp
@@ -77,10 +72,19 @@ target_link_libraries(test_map PRIVATE SFML::System)
 apply_common_flags(test_map)
 add_test(NAME MapTests COMMAND test_map)
 
-# test_world
 add_executable(test_world
     tests/test_world.cpp
 )
 target_link_libraries(test_world PRIVATE SFML::System)
 apply_common_flags(test_world)
 add_test(NAME WorldTests COMMAND test_world)
+
+# ---- НОВЫЙ тест: BSP ----
+add_executable(test_bsp
+    tests/test_bsp.cpp
+    src/world/Map.cpp
+    src/world/BSPDungeonBuilder.cpp
+)
+target_link_libraries(test_bsp PRIVATE SFML::System)
+apply_common_flags(test_bsp)
+add_test(NAME BSPTests COMMAND test_bsp)

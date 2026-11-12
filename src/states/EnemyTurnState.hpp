@@ -3,10 +3,9 @@
 #include "states/GameState.hpp"
 #include "systems/EnemyAI.hpp"
 
+#include <cassert>
 #include <vector>
 
-// Все монстры делают по одному действию.
-// Как только все сходили (или игрок умер) — переход к next_.
 class EnemyTurnState final : public GameState
 {
 public:
@@ -21,23 +20,21 @@ public:
 
     GameState* update(GameContext& ctx) override
     {
-        if (!ctx.world || !ctx.map) return next_;
+        assert(next_ && "EnemyTurnState::next_ not set");
+        if (!ctx.world || !ctx.map || !ctx.log) return next_;
 
-        // Снимок ID монстров — чтобы не инвалидировать view во время итерации.
+        // Снимок монстров — чтобы мутации не сломали итерацию
         std::vector<EntityId> monsters;
-        for (auto [id, pos] : ctx.world->view<MonsterTag>())
+        for (auto [id, tag] : ctx.world->view<MonsterTag>())
             monsters.push_back(id);
 
         for (EntityId m : monsters)
         {
-            // Монстр мог умереть от предыдущего действия — проверяем.
-            if (!ctx.world->isAlive(m)) continue;
-            enemyTakeTurn(*ctx.world, *ctx.map, m, ctx.player);
+            if (!ctx.world->isAlive(m)) continue;   // мог умереть
+            enemyTakeTurn(*ctx.world, *ctx.map, m, ctx.player, *ctx.log);
 
-            // Игрок мог умереть — тогда GameOver.
-            // Пока просто выходим, main проверит.
             if (!ctx.world->isAlive(ctx.player))
-                return next_;
+                break;   // игрок мёртв — дальше не ходим
         }
         return next_;
     }

@@ -1,6 +1,7 @@
 #include <SFML/Graphics.hpp>
 #include <print>
 #include <algorithm>
+#include <random>
 
 #include "components/Health.hpp"
 #include "components/MonsterTag.hpp"
@@ -14,14 +15,58 @@
 #include "states/EnemyTurnState.hpp"
 #include "states/GameOverState.hpp"
 #include "states/PlayerTurnState.hpp"
+#include "systems/HudSystem.hpp"
+#include "systems/MessageLog.hpp"
 #include "systems/RenderSystem.hpp"
+#include "world/BSPDungeonBuilder.hpp"
+#include "world/DungeonDirector.hpp"
 #include "world/Map.hpp"
+
+// Спавн монстров в случайных комнатах
+static void spawnMonsters(World& world, const Dungeon& dungeon,
+                          std::mt19937& rng)
+{
+    if (dungeon.rooms.size() < 2) return;
+
+    // Пропускаем первую (Entrance)
+    std::uniform_int_distribution<std::size_t> roomDist(1, dungeon.rooms.size() - 1);
+    std::uniform_int_distribution<int> dx(1, 2);   // 1–2 гоблина
+    std::uniform_int_distribution<int> dy(0, 1);   // 0–1 крыса
+
+    const int numGoblins = dx(rng);
+    const int numRats    = dy(rng);
+
+    auto spawnAt = [&](const Room& room, sf::Color color, float sizeRatio,
+                       const std::string& name, int hp)
+    {
+        int x, y;
+        if (!room.randomPoint(rng, x, y)) return;
+
+        const EntityId id = world.create();
+        world.add<MonsterTag>(id);
+        world.add<Name>(id, name);
+        world.add<Position>(id, Position{x, y});
+        world.add<Renderable>(id, Renderable{color, sizeRatio});
+        world.add<Health>(id, Health{hp, hp});
+    };
+
+    for (int i = 0; i < numGoblins; ++i)
+    {
+        const auto& room = dungeon.rooms[roomDist(rng)];
+        spawnAt(room, sf::Color(180, 60, 60), 0.875f, "Гоблин", 5);
+    }
+    for (int i = 0; i < numRats; ++i)
+    {
+        const auto& room = dungeon.rooms[roomDist(rng)];
+        spawnAt(room, sf::Color(140, 100, 60), 0.6f, "Крыса", 3);
+    }
+}
 
 int main()
 {
     constexpr int kTileSize  = 32;
-    constexpr int kMapWidth  = 40;
-    constexpr int kMapHeight = 25;
+    constexpr int kMapWidth  = 60;
+    constexpr int kMapHeight = 40;
 
     sf::RenderWindow window(
         sf::VideoMode({1280u, 720u}),
@@ -30,24 +75,34 @@ int main()
     );
     window.setFramerateLimit(60);
 
-    // ---------- Мир ----------
-    Map map(kMapWidth, kMapHeight);
-    map.fill(TileType::Floor);
-
-    for (int x = 0; x < kMapWidth; ++x) {
-        map.at(x, 0).type = TileType::Wall;
-        map.at(x, kMapHeight - 1).type = TileType::Wall;
+    // ---------- Шрифт ----------
+    sf::Font font;
+    if (!font.openFromFile("assets/fonts/main.ttf"))
+    {
+        std::println(stderr, "Не удалось загрузить шрифт: assets/fonts/main.ttf");
+        return 1;
     }
-    for (int y = 0; y < kMapHeight; ++y) {
-        map.at(0, y).type = TileType::Wall;
-        map.at(kMapWidth - 1, y).type = TileType::Wall;
-    }
-    for (int y = 5; y < 15; ++y)
-        map.at(10, y).type = TileType::Wall;
 
-    for (auto& t : map.tiles())
-        t.color = (t.type == TileType::Floor)
-                ? sf::Color(60, 60, 70) : sf::Color(30, 30, 35);
+    // ---------- Генерация подземелья ----------
+    const std::uint32_t seed = static_cast<std::uint32_t>(std::random_device{}());
+    std::println("Seed: {}", seed);
+
+    DungeonDirector director;
+    director.registerBuilder("bsp", std::make_unique<BSPDungeonBuilder>());
+
+    auto dungeonOpt = director.build("bsp", seed, kMapWidth, kMapHeight);
+    if (!dungeonOpt)
+    {
+        std::println(stderr, "Не удалось сгенерировать подземелье");
+        return 1;
+    }
+    Dungeon dungeon = std::move(*dungeonOpt);
+
+    std::println("Комнат: {}", dungeon.rooms.size());
+    std::println("Спавн игрока: ({}, {})",
+                 dungeon.playerSpawnX, dungeon.playerSpawnY);
+
+    std::mt19937 rng(seed + 1);   // отдельный RNG для спавна (чтобы не портить карту)
 
     // ---------- ECS ----------
     World world;
@@ -55,40 +110,31 @@ int main()
     const EntityId player = world.create();
     world.add<PlayerTag>(player);
     world.add<Name>(player, "Вы");
-    world.add<Position>(player, Position{3, 3});
+    world.add<Position>(player, Position{dungeon.playerSpawnX, dungeon.playerSpawnY});
     world.add<Renderable>(player, Renderable{sf::Color::Green});
     world.add<Health>(player, Health{30, 30});
 
-    const EntityId goblin = world.create();
-    world.add<MonsterTag>(goblin);
-    world.add<Name>(goblin, "Гоблин");
-    world.add<Position>(goblin, Position{7, 4});
-    world.add<Renderable>(goblin, Renderable{sf::Color(180, 60, 60)});
-    world.add<Health>(goblin, Health{5, 5});
+    spawnMonsters(world, dungeon, rng);
 
-    const EntityId rat = world.create();
-    world.add<MonsterTag>(rat);
-    world.add<Name>(rat, "Крыса");
-    world.add<Position>(rat, Position{14, 8});
-    world.add<Renderable>(rat, Renderable{sf::Color(140, 100, 60), 0.6f});
-    world.add<Health>(rat, Health{3, 3});
+    // ---------- Состояния ----------
+    GameOverState   gameOver;
+    EnemyTurnState  enemyTurn;
+    PlayerTurnState playerTurn{ &enemyTurn };
+    enemyTurn.setNext(&playerTurn);
 
-	// ---------- Состояния ----------
-	// Циклическая связка: PlayerTurn ↔ EnemyTurn.
-	// GameOver — отдельно, main переключается принудительно при смерти.
-	GameOverState  gameOver;
-	EnemyTurnState enemyTurn;
-	PlayerTurnState playerTurn{ &enemyTurn };
-	enemyTurn.setNext(&playerTurn);
+    GameState* current = &playerTurn;
 
-	GameState* current = &playerTurn;
-
-    // ---------- Контекст и системы ----------
-    GameContext ctx{ &world, &map, player };
+    // ---------- Системы и контекст ----------
+    MessageLog log;
+    GameContext ctx{ &world, &dungeon.map, &log, player };
     InputHandler input;
     RenderSystem renderer(kTileSize);
+    HudSystem hud(font);
     GameLoop loop;
 
+    log.push("Добро пожаловать в подземелье!");
+
+    // ---------- Игровой цикл ----------
     while (window.isOpen())
     {
         while (const std::optional event = window.pollEvent())
@@ -101,31 +147,26 @@ int main()
                 window.close(); continue;
             }
 
-            // Игрок мёртв? Переключаемся на GameOver.
-            if (auto* hp = world.get<Health>(player); hp && hp->isDead())
-            {
-                current = &gameOver;
-            }
-
-            // Создать команду по клавише (если маппинг есть)
             auto cmd = input.makeCommand(*event);
             if (!cmd) continue;
 
-            // Отдать команду текущему состоянию
             current->handleCommand(*cmd, ctx);
         }
 
-        // Игрок мёртв — принудительно GameOver
-        if (auto* hp = world.get<Health>(player); hp && hp->isDead())
-            current = &gameOver;
-
-        // Симуляция
         const int steps = loop.advance();
-        for (int i = 0; i < steps; ++i) { /* анимации — потом */ }
+        for (int i = 0; i < steps; ++i) { }
 
-        // Обновить состояние (возможно, перейти дальше)
         if (GameState* next = current->update(ctx); next != nullptr && next != current)
             current = next;
+
+        if (auto* hp = world.get<Health>(player); hp && hp->isDead())
+        {
+            if (current != &gameOver)
+            {
+                log.push("Вы погибли...");
+                current = &gameOver;
+            }
+        }
 
         // Камера
         float camX = 0.f, camY = 0.f;
@@ -145,8 +186,9 @@ int main()
 
         // Рендер
         window.clear(sf::Color(10, 10, 15));
-        renderer.drawMap(window, map, camX, camY);
+        renderer.drawMap(window, dungeon.map, camX, camY);
         renderer.drawEntities(window, world, camX, camY);
+        hud.draw(window, world, player, log);
         window.display();
     }
 

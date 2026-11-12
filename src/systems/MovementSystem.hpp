@@ -1,13 +1,14 @@
 #pragma once
 
+#include "components/MonsterTag.hpp"
 #include "components/Position.hpp"
 #include "ecs/World.hpp"
+#include "systems/CollisionSystem.hpp"
 #include "world/Map.hpp"
 
-// Пытается сдвинуть сущность на (dx, dy).
-// Возвращает true, если сдвиг удался (клетка проходима).
-//
-// Это ОБЩИЙ код движения — используется и командами игрока, и AI монстров.
+// Попытаться сдвинуть сущность.
+// Возвращает true, если сдвиг удался.
+// false — если стена или клетка занята другой сущностью.
 inline bool tryMove(World& world, Map& map, EntityId id, int dx, int dy)
 {
     auto* pos = world.get<Position>(id);
@@ -17,6 +18,7 @@ inline bool tryMove(World& world, Map& map, EntityId id, int dx, int dy)
     const int ny = pos->y + dy;
 
     if (!map.isWalkable(nx, ny)) return false;
+    if (isOccupied(world, nx, ny, id)) return false;
 
     pos->x = nx;
     pos->y = ny;
