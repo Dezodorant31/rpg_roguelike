@@ -1,6 +1,7 @@
 #include <SFML/Graphics.hpp>
 #include <print>
 #include <algorithm>
+#include <limits>
 #include <random>
 
 #include "components/Health.hpp"
@@ -15,6 +16,7 @@
 #include "states/EnemyTurnState.hpp"
 #include "states/GameOverState.hpp"
 #include "states/PlayerTurnState.hpp"
+#include "systems/FOVSystem.hpp"
 #include "systems/HudSystem.hpp"
 #include "systems/MessageLog.hpp"
 #include "systems/RenderSystem.hpp"
@@ -67,6 +69,7 @@ int main()
     constexpr int kTileSize  = 32;
     constexpr int kMapWidth  = 60;
     constexpr int kMapHeight = 40;
+    constexpr int kFovRadius = 8;
 
     sf::RenderWindow window(
         sf::VideoMode({1280u, 720u}),
@@ -102,7 +105,7 @@ int main()
     std::println("Спавн игрока: ({}, {})",
                  dungeon.playerSpawnX, dungeon.playerSpawnY);
 
-    std::mt19937 rng(seed + 1);   // отдельный RNG для спавна (чтобы не портить карту)
+    std::mt19937 rng(seed + 1);   // отдельный RNG для спавна
 
     // ---------- ECS ----------
     World world;
@@ -133,6 +136,10 @@ int main()
     GameLoop loop;
 
     log.push("Добро пожаловать в подземелье!");
+
+    // ---------- Начальный FOV (до первого хода) ----------
+    static int lastPlayerX = std::numeric_limits<int>::min();
+    static int lastPlayerY = std::numeric_limits<int>::min();
 
     // ---------- Игровой цикл ----------
     while (window.isOpen())
@@ -168,7 +175,18 @@ int main()
             }
         }
 
-        // Камера
+        // ---------- FOV: пересчёт только при сдвиге игрока (Dirty Flag) ----------
+        if (auto* ppos = world.get<Position>(player))
+        {
+            if (ppos->x != lastPlayerX || ppos->y != lastPlayerY)
+            {
+                FOVSystem::compute(dungeon.map, ppos->x, ppos->y, kFovRadius);
+                lastPlayerX = ppos->x;
+                lastPlayerY = ppos->y;
+            }
+        }
+
+        // ---------- Камера ----------
         float camX = 0.f, camY = 0.f;
         if (auto* ppos = world.get<Position>(player))
         {
@@ -184,10 +202,10 @@ int main()
         camX = std::clamp(camX, 0.f, std::max(0.f, maxCamX));
         camY = std::clamp(camY, 0.f, std::max(0.f, maxCamY));
 
-        // Рендер
+        // ---------- Рендер ----------
         window.clear(sf::Color(10, 10, 15));
         renderer.drawMap(window, dungeon.map, camX, camY);
-        renderer.drawEntities(window, world, camX, camY);
+        renderer.drawEntities(window, world, dungeon.map, camX, camY);
         hud.draw(window, world, player, log);
         window.display();
     }

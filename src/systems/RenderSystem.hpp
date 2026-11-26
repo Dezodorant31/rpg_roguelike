@@ -8,6 +8,7 @@
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Graphics/RectangleShape.hpp>
 #include <algorithm>
+#include <cstdint>
 
 class RenderSystem
 {
@@ -40,25 +41,49 @@ public:
             for (int x = x0; x < x1; ++x)
             {
                 const auto& tile = map.at(x, y);
+
+                sf::Color color;
+                if (tile.visible)
+                {
+                    color = tile.color;
+                }
+                else if (tile.explored)
+                {
+                    color = sf::Color(
+                        static_cast<std::uint8_t>(tile.color.r * 35 / 100),
+                        static_cast<std::uint8_t>(tile.color.g * 35 / 100),
+                        static_cast<std::uint8_t>(tile.color.b * 35 / 100),
+                        tile.color.a);
+                }
+                else
+                {
+                    color = sf::Color(10, 10, 15);
+                }
+
                 shape_.setPosition({
                     static_cast<float>(x * tileSize_) - cameraX,
                     static_cast<float>(y * tileSize_) - cameraY
                 });
-                shape_.setFillColor(tile.color);
+                shape_.setFillColor(color);
                 window.draw(shape_);
             }
         }
     }
 
-    // Новый метод: рисует ВСЕ сущности с Position + Renderable.
+    // Рисует сущности с Position + Renderable, но только на ВИДИМЫХ клетках.
     void drawEntities(sf::RenderWindow& window,
                       World& world,
+                      const Map& map,
                       float cameraX, float cameraY)
     {
         for (auto [id, pos] : world.view<Position>())
         {
             auto* rend = world.get<Renderable>(id);
             if (!rend) continue;
+
+            // FOV: рисуем только то, что на видимой клетке
+            if (!map.inBounds(pos->x, pos->y)) continue;
+            if (!map.at(pos->x, pos->y).visible) continue;
 
             const float s = static_cast<float>(tileSize_) * rend->sizeRatio;
             const float offset = (static_cast<float>(tileSize_) - s) / 2.f;
@@ -71,6 +96,10 @@ public:
             shape_.setFillColor(rend->color);
             window.draw(shape_);
         }
+
+        // Восстанавливаем размер (drawMap ожидает полный тайл)
+        shape_.setSize({static_cast<float>(tileSize_),
+                        static_cast<float>(tileSize_)});
     }
 
 private:

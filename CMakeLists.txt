@@ -50,7 +50,7 @@ endfunction()
 add_executable(rpg_roguelike
     src/main.cpp
     src/world/Map.cpp
-    src/world/BSPDungeonBuilder.cpp       # ← НОВЫЙ: реализация BSP
+    src/world/BSPDungeonBuilder.cpp
 )
 target_link_libraries(rpg_roguelike PRIVATE
     SFML::Graphics
@@ -79,7 +79,6 @@ target_link_libraries(test_world PRIVATE SFML::System)
 apply_common_flags(test_world)
 add_test(NAME WorldTests COMMAND test_world)
 
-# ---- НОВЫЙ тест: BSP ----
 add_executable(test_bsp
     tests/test_bsp.cpp
     src/world/Map.cpp
@@ -88,3 +87,12 @@ add_executable(test_bsp
 target_link_libraries(test_bsp PRIVATE SFML::System)
 apply_common_flags(test_bsp)
 add_test(NAME BSPTests COMMAND test_bsp)
+
+# ---- FOV ----
+add_executable(test_fov
+    tests/test_fov.cpp
+    src/world/Map.cpp
+)
+target_link_libraries(test_fov PRIVATE SFML::System)
+apply_common_flags(test_fov)
+add_test(NAME FOVTests COMMAND test_fov)
