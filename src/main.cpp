@@ -4,13 +4,16 @@
 #include <limits>
 #include <random>
 
+#include "ai/BehaviorRegistry.hpp"
 #include "components/Health.hpp"
 #include "components/MonsterTag.hpp"
+#include "components/MonsterTypeRef.hpp"
 #include "components/Name.hpp"
 #include "components/PlayerTag.hpp"
 #include "components/Position.hpp"
 #include "components/Renderable.hpp"
 #include "core/GameLoop.hpp"
+#include "data/MonsterTypeRegistry.hpp"
 #include "ecs/World.hpp"
 #include "input/InputHandler.hpp"
 #include "states/EnemyTurnState.hpp"
@@ -24,44 +27,43 @@
 #include "world/DungeonDirector.hpp"
 #include "world/Map.hpp"
 
-// Спавн монстров в случайных комнатах
+// Спавн монстров в случайных комнатах. Тип берётся из реестра.
 static void spawnMonsters(World& world, const Dungeon& dungeon,
+                          const MonsterTypeRegistry& typeRegistry,
                           std::mt19937& rng)
 {
     if (dungeon.rooms.size() < 2) return;
 
-    // Пропускаем первую (Entrance)
     std::uniform_int_distribution<std::size_t> roomDist(1, dungeon.rooms.size() - 1);
-    std::uniform_int_distribution<int> dx(1, 2);   // 1–2 гоблина
-    std::uniform_int_distribution<int> dy(0, 1);   // 0–1 крыса
+    std::uniform_int_distribution<int> countDist(1, 2);
 
-    const int numGoblins = dx(rng);
-    const int numRats    = dy(rng);
-
-    auto spawnAt = [&](const Room& room, sf::Color color, float sizeRatio,
-                       const std::string& name, int hp)
+    auto spawnAt = [&](const Room& room, const std::string& typeId)
     {
+        const MonsterType* type = typeRegistry.find(typeId);
+        if (!type) return;
+
         int x, y;
         if (!room.randomPoint(rng, x, y)) return;
 
         const EntityId id = world.create();
         world.add<MonsterTag>(id);
-        world.add<Name>(id, name);
+        world.add<Name>(id, type->name);
         world.add<Position>(id, Position{x, y});
-        world.add<Renderable>(id, Renderable{color, sizeRatio});
-        world.add<Health>(id, Health{hp, hp});
+        world.add<Renderable>(id, Renderable{type->color, type->sizeRatio});
+        world.add<Health>(id, Health{type->hp, type->hp});
+        world.add<MonsterTypeRef>(id, MonsterTypeRef{type});
     };
 
-    for (int i = 0; i < numGoblins; ++i)
-    {
-        const auto& room = dungeon.rooms[roomDist(rng)];
-        spawnAt(room, sf::Color(180, 60, 60), 0.875f, "Гоблин", 5);
-    }
-    for (int i = 0; i < numRats; ++i)
-    {
-        const auto& room = dungeon.rooms[roomDist(rng)];
-        spawnAt(room, sf::Color(140, 100, 60), 0.6f, "Крыса", 3);
-    }
+    // Гоблины
+    for (int i = 0; i < countDist(rng); ++i)
+        spawnAt(dungeon.rooms[roomDist(rng)], "goblin");
+
+    // Крысы
+    for (int i = 0; i < countDist(rng); ++i)
+        spawnAt(dungeon.rooms[roomDist(rng)], "rat");
+
+    // Орк — один
+    spawnAt(dungeon.rooms[roomDist(rng)], "orc");
 }
 
 int main()
@@ -85,6 +87,10 @@ int main()
         std::println(stderr, "Не удалось загрузить шрифт: assets/fonts/main.ttf");
         return 1;
     }
+
+    // ---------- Реестры типов и поведений ----------
+    MonsterTypeRegistry typeRegistry("assets/data/monsters.json");
+    BehaviorRegistry    behaviorRegistry;
 
     // ---------- Генерация подземелья ----------
     const std::uint32_t seed = static_cast<std::uint32_t>(std::random_device{}());
@@ -117,11 +123,11 @@ int main()
     world.add<Renderable>(player, Renderable{sf::Color::Green});
     world.add<Health>(player, Health{30, 30});
 
-    spawnMonsters(world, dungeon, rng);
+    spawnMonsters(world, dungeon, typeRegistry, rng);
 
     // ---------- Состояния ----------
     GameOverState   gameOver;
-    EnemyTurnState  enemyTurn;
+    EnemyTurnState  enemyTurn{behaviorRegistry};
     PlayerTurnState playerTurn{ &enemyTurn };
     enemyTurn.setNext(&playerTurn);
 
@@ -137,7 +143,7 @@ int main()
 
     log.push("Добро пожаловать в подземелье!");
 
-    // ---------- Начальный FOV (до первого хода) ----------
+    // ---------- Начальный FOV ----------
     static int lastPlayerX = std::numeric_limits<int>::min();
     static int lastPlayerY = std::numeric_limits<int>::min();
 

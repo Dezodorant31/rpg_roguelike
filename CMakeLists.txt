@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # ---------------------------------------------------------------------------
-# SFML
+# SFML (локально в SFML-3.1.0/)
 # ---------------------------------------------------------------------------
 find_package(SFML 3.1 COMPONENTS Graphics Window System QUIET)
 
@@ -28,6 +28,7 @@ function(apply_common_flags target)
     target_include_directories(${target} PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/third_party/doctest
+        ${CMAKE_SOURCE_DIR}/json-develop/single_include   # ← nlohmann/json
     )
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -88,7 +89,6 @@ target_link_libraries(test_bsp PRIVATE SFML::System)
 apply_common_flags(test_bsp)
 add_test(NAME BSPTests COMMAND test_bsp)
 
-# ---- FOV ----
 add_executable(test_fov
     tests/test_fov.cpp
     src/world/Map.cpp
@@ -96,3 +96,11 @@ add_executable(test_fov
 target_link_libraries(test_fov PRIVATE SFML::System)
 apply_common_flags(test_fov)
 add_test(NAME FOVTests COMMAND test_fov)
+
+add_executable(test_ai
+    tests/test_ai.cpp
+    src/world/Map.cpp
+)
+target_link_libraries(test_ai PRIVATE SFML::System)
+apply_common_flags(test_ai)
+add_test(NAME AITests COMMAND test_ai)
